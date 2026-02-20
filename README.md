@@ -1,35 +1,40 @@
-# Text Translator
+# SRT Translator
 
-Translate text files using AI (Alibaba Cloud, SiliconFlow & OpenRouter).
+Translate SRT subtitle files using AI (Alibaba Cloud, SiliconFlow & OpenRouter).
 
 ## Features
 
 - Multiple provider support with automatic fallback
-- Supports `.txt`, `.md`, `.text` files
+- Extracts subtitle text and translates
 - Chunked processing for large files
 - Configurable source/target languages
 
-## Quick Start
+## Quick Start (Windows PowerShell)
 
-```bash
+```powershell
 # 1. Clone
 git clone https://github.com/GozenSakishio/translator
 cd translator
 
-# 2. Setup
-cp .env.example .env
-# Edit .env with your API keys
+# 2. Setup virtual environment
+python3 -m venv .venv
+.\.venv\Scripts\activate
 
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 3. Translate
-cp your/files/*.txt input/
+# 4. Configure API keys
+Copy-Item .env.example .env
+# Edit .env with your API keys
+
+# 5. Translate
+Copy-Item your\files\*.srt input\
 python run.py
 ```
 
 ## CLI Options
 
-```bash
+```powershell
 python run.py                      # Use all enabled providers
 python run.py -p openrouter        # Use only openrouter
 python run.py -s English -t Japanese  # Override languages
@@ -84,16 +89,16 @@ rate_limit:
 
 ## Output
 
-- Input: `input/document.txt`
-- Output: `output/document.txt`
+- Input: `input/video.srt`
+- Output: `output/video.txt` (translated text)
 
 ## Architecture Notes
 
-This project inherits all enhancements from srt-processor:
+Inherited from srt-processor:
 
 1. **Per-provider max_tokens** - Alibaba limited to 8000, others can use 16000
-2. **Chunked processing** - Large files split at paragraph boundaries
+2. **Chunked processing** - Large files split at sentence boundaries
 3. **Connection pool management** - Shared httpx client with limits
-4. **Proxy bypass** - Set `proxy: null` to skip system proxy for specific providers
+4. **Proxy bypass** - Set `proxy: null` to skip system proxy
 5. **Provider fallback** - Tries providers in config order
 6. **Explicit cleanup** - Ensures connections closed on exit

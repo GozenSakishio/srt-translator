@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import re
 import time
 import argparse
@@ -16,7 +15,6 @@ INPUT_DIR = Path("input")
 OUTPUT_DIR = Path("output")
 CONFIG_FILE = Path("config.yaml")
 MAX_CHUNK_SIZE = 12000
-SUPPORTED_EXTENSIONS = {'.txt', '.md', '.text'}
 
 
 def load_config():
@@ -24,31 +22,48 @@ def load_config():
         return yaml.safe_load(f)
 
 
-def read_file(file_path: Path) -> str:
+def read_srt(file_path: Path) -> str:
     with open(file_path, 'r', encoding='utf-8') as f:
         return f.read()
 
 
+def extract_text_from_srt(srt_content: str) -> str:
+    lines = srt_content.strip().split('\n')
+    text_lines = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        if line.isdigit():
+            continue
+        if re.match(r'\d{2}:\d{2}:\d{2}', line):
+            continue
+        text_lines.append(line)
+    
+    return '\n'.join(text_lines)
+
+
 def split_text_into_chunks(text: str, max_size: int = MAX_CHUNK_SIZE) -> list[str]:
-    paragraphs = text.split('\n\n')
+    sentences = re.split(r'(?<=[。.!?])\s*', text)
     chunks = []
     current_chunk = []
     current_size = 0
     
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
             continue
-        para_size = len(para)
-        if current_size + para_size + 2 > max_size and current_chunk:
-            chunks.append('\n\n'.join(current_chunk))
+        sent_size = len(sentence)
+        if current_size + sent_size + 1 > max_size and current_chunk:
+            chunks.append(' '.join(current_chunk))
             current_chunk = []
             current_size = 0
-        current_chunk.append(para)
-        current_size += para_size + 2
+        current_chunk.append(sentence)
+        current_size += sent_size + 1
     
     if current_chunk:
-        chunks.append('\n\n'.join(current_chunk))
+        chunks.append(' '.join(current_chunk))
     
     return chunks
 
@@ -115,7 +130,7 @@ def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Translate text files with AI')
+    parser = argparse.ArgumentParser(description='Translate SRT subtitle files with AI')
     parser.add_argument('--provider', '-p', 
                         help='Use only this provider (e.g., alibaba, openrouter, siliconflow)')
     parser.add_argument('--list-providers', '-l', 
@@ -156,28 +171,27 @@ def main():
         return
     
     print(f"Available providers: {[p.name for p in providers]}")
-    print(f"Source: {config['processing'].get('source_language', 'auto')} → Target: {config['processing'].get('target_language', 'Chinese')}")
+    print(f"Source: {config['processing'].get('source_language', 'auto')} -> Target: {config['processing'].get('target_language', 'Chinese')}")
     
-    input_files = []
-    for ext in SUPPORTED_EXTENSIONS:
-        input_files.extend(INPUT_DIR.glob(f"*{ext}"))
+    srt_files = list(INPUT_DIR.glob("*.srt"))
     
-    if not input_files:
-        print(f"No files found in input/ (supported: {SUPPORTED_EXTENSIONS})")
+    if not srt_files:
+        print("No .srt files found in input/")
         return
     
-    print(f"\nProcessing {len(input_files)} file(s)...\n")
+    print(f"\nProcessing {len(srt_files)} SRT file(s)...\n")
     
     rate_config = config['rate_limit']
     delay = 60.0 / rate_config['requests_per_minute']
     include_title = config['processing'].get('include_filename_as_title', True)
     
     try:
-        for i, input_file in enumerate(input_files, 1):
-            print(f"[{i}/{len(input_files)}] {input_file.name}")
+        for i, srt_file in enumerate(srt_files, 1):
+            print(f"[{i}/{len(srt_files)}] {srt_file.name}")
             
             try:
-                raw_text = read_file(input_file)
+                srt_content = read_srt(srt_file)
+                raw_text = extract_text_from_srt(srt_content)
                 
                 if not raw_text.strip():
                     print(f"    Skipping: No text content found")
@@ -187,11 +201,11 @@ def main():
                 
                 output_lines = []
                 if include_title:
-                    title = input_file.stem
+                    title = srt_file.stem
                     output_lines.append(f"# {title}\n")
                 output_lines.append(translated_text)
                 
-                output_file = OUTPUT_DIR / f"{input_file.stem}.txt"
+                output_file = OUTPUT_DIR / f"{srt_file.stem}.txt"
                 with open(output_file, 'w', encoding='utf-8') as f:
                     f.write('\n'.join(output_lines))
                 
@@ -200,7 +214,7 @@ def main():
             except Exception as e:
                 print(f"    Failed: {e}")
             
-            if i < len(input_files):
+            if i < len(srt_files):
                 time.sleep(delay)
     finally:
         for provider in providers:
