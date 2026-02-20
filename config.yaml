@@ -1,0 +1,50 @@
+providers:
+  - name: alibaba
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model: qwen3-8b
+    enabled: true
+    proxy: null
+    max_tokens: 8000
+    extra_params:
+      enable_thinking: false
+      
+  - name: siliconflow
+    base_url: https://api.siliconflow.cn/v1
+    model: Qwen/Qwen3-8B
+    enabled: true
+    proxy: null
+    max_tokens: 16000
+    
+  - name: openrouter
+    base_url: https://openrouter.ai/api/v1
+    model: qwen/qwen3-8b
+    enabled: true
+    max_tokens: 16000
+
+processing:
+  source_language: auto
+  target_language: Chinese
+  prompt: |
+    You are a professional translator. Translate the following text from {source_language} to {target_language}.
+    
+    Requirements:
+    1. Maintain the original formatting and structure
+    2. Keep code blocks, URLs, and technical terms unchanged
+    3. Preserve markdown formatting if present
+    4. Output ONLY the translated text, no explanations
+    5. Output ALL content completely - do not omit or truncate any part
+    
+    Text to translate:
+    {content}
+  
+  output_format: txt
+  include_filename_as_title: true
+
+rate_limit:
+  requests_per_minute: 30
+  retry_on_error: true
+  max_retries: 3
+  retry_delay: 5
+  fallback_to_next_provider: true
+  timeout: 120
+  max_tokens: 8000
