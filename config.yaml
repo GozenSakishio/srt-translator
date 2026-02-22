@@ -51,5 +51,5 @@ rate_limit:
   max_retries: 3
   retry_delay: 5
   fallback_to_next_provider: true
-  timeout: 120
+  timeout: 300
   max_tokens: 8000
