@@ -81,6 +81,13 @@ def parse_translated_text(text: str, expected_count: int) -> list[str]:
     return output
 
 
+def is_translated(text: str, target_lang: str) -> bool:
+    if target_lang.lower() in ('chinese', 'zh', '中文'):
+        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
+        return chinese_chars > len(text) * 0.1
+    return bool(text.strip())
+
+
 def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
     output = []
     for i, block in enumerate(blocks):
@@ -161,10 +168,15 @@ def build_prompt(prompt_template: str, raw_text: str, config: dict) -> str:
 
 def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str | None]:
     chunk_size = get_effective_chunk_size(providers)
+    target_lang = config['processing'].get('target_language', 'Chinese')
     
     if len(raw_text) <= chunk_size:
         prompt = build_prompt(config['processing']['prompt'], raw_text, config)
-        return process_with_fallback(providers, prompt, config)
+        result, provider = process_with_fallback(providers, prompt, config)
+        if not is_translated(result, target_lang):
+            print(f"    Warning: Translation may be incomplete, retrying...")
+            result, provider = process_with_fallback(providers, prompt, config)
+        return result, provider
     
     chunks = split_text_into_chunks(raw_text, chunk_size)
     print(f"    Split into {len(chunks)} chunks ({[len(c) for c in chunks]} chars each, limit: {chunk_size})")
@@ -176,6 +188,11 @@ def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str
         print(f"    Processing chunk {i+1}/{len(chunks)}...")
         prompt = build_prompt(config['processing']['prompt'], chunk, config)
         result, provider = process_with_fallback(providers, prompt, config)
+        
+        if not is_translated(result, target_lang):
+            print(f"    Warning: Chunk {i+1} not fully translated, retrying...")
+            result, provider = process_with_fallback(providers, prompt, config)
+        
         results.append(result)
         last_provider = provider
         if i < len(chunks) - 1:
