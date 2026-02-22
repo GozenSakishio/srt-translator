@@ -38,6 +38,7 @@ processing:
   target_language: Chinese
   context: "Blender 3D software tutorial - technical terms include: render, shader, node, vertex, mesh, UV, texture, animation, keyframe"
   translation_style: natural
+  max_chunk_size: 12000
   prompt: |
     You are a professional translator. Translate from {source_language} to {target_language}.
     
@@ -63,5 +64,5 @@ rate_limit:
   max_retries: 3
   retry_delay: 5
   fallback_to_next_provider: true
-  timeout: 120
+  timeout: 180
   max_tokens: 8000
