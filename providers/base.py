@@ -6,6 +6,8 @@ class BaseProvider(ABC):
     def __init__(self, config: dict, api_key: str, timeout: float = 60.0):
         self.config = config
         self._max_tokens = config.get('max_tokens', 8000)
+        self._context_limit = config.get('context_limit', 32000)
+        provider_timeout = config.get('timeout', timeout)
         if 'proxy' in config:
             trust_env = False
             proxy = config.get('proxy')
@@ -14,18 +16,22 @@ class BaseProvider(ABC):
             proxy = None
         self.http_client = httpx.Client(
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            timeout=httpx.Timeout(timeout),
+            timeout=httpx.Timeout(provider_timeout),
             proxy=proxy,
             trust_env=trust_env
         )
         self.client = OpenAI(
             api_key=api_key,
             base_url=config['base_url'],
-            timeout=timeout,
+            timeout=provider_timeout,
             http_client=self.http_client
         )
         self.name = config['name']
         self.model = config['model']
+    
+    @property
+    def context_limit(self) -> int:
+        return self._context_limit
     
     def close(self):
         if hasattr(self, 'http_client') and self.http_client:
@@ -56,4 +62,4 @@ class OpenAICompatibleProvider(BaseProvider):
             max_tokens=self._max_tokens,
             extra_body=extra_body
         )
-        return response.choices[0].message.content
+        return response.choices[0].message.content or ""
