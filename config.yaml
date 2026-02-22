@@ -8,6 +8,13 @@ providers:
     extra_params:
       enable_thinking: false
       
+  - name: alibaba-plus
+    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
+    model: qwen3.5-plus
+    enabled: true
+    proxy: null
+    max_tokens: 16000
+      
   - name: siliconflow
     base_url: https://api.siliconflow.cn/v1
     model: Qwen/Qwen3-8B
