@@ -27,21 +27,71 @@ def read_srt(file_path: Path) -> str:
         return f.read()
 
 
-def extract_text_from_srt(srt_content: str) -> str:
+def parse_srt(srt_content: str) -> list[dict]:
+    blocks = []
+    current_block = {}
     lines = srt_content.strip().split('\n')
-    text_lines = []
     
     for line in lines:
-        line = line.strip()
+        line = line.rstrip()
         if not line:
+            if current_block:
+                blocks.append(current_block)
+                current_block = {}
             continue
-        if line.isdigit():
-            continue
-        if re.match(r'\d{2}:\d{2}:\d{2}', line):
-            continue
-        text_lines.append(line)
+        
+        if 'index' not in current_block and line.isdigit():
+            current_block['index'] = int(line)
+        elif 'timestamp' not in current_block and re.match(r'\d{2}:\d{2}:\d{2}', line):
+            current_block['timestamp'] = line
+        else:
+            if 'text' not in current_block:
+                current_block['text'] = []
+            current_block['text'].append(line)
     
-    return '\n'.join(text_lines)
+    if current_block:
+        blocks.append(current_block)
+    
+    return blocks
+
+
+def blocks_to_translatable_text(blocks: list[dict]) -> str:
+    lines = []
+    for block in blocks:
+        text = ' '.join(block['text'])
+        lines.append(f"[{block['index']}] {text}")
+    return '\n'.join(lines)
+
+
+def parse_translated_text(text: str, expected_count: int) -> list[str]:
+    pattern = r'\[(\d+)\]\s*(.*?)(?=\[\d+\]|$)'
+    matches = re.findall(pattern, text, re.DOTALL)
+    
+    results = {}
+    for idx_str, content in matches:
+        idx = int(idx_str)
+        content = content.strip()
+        if content:
+            results[idx] = content
+    
+    output = []
+    for i in range(1, expected_count + 1):
+        output.append(results.get(i, ''))
+    
+    return output
+
+
+def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
+    output = []
+    for i, block in enumerate(blocks):
+        output.append(str(i + 1))
+        output.append(block['timestamp'])
+        if i < len(translated_texts) and translated_texts[i]:
+            output.append(translated_texts[i])
+        else:
+            output.extend(block['text'])
+        output.append('')
+    return '\n'.join(output)
 
 
 def split_text_into_chunks(text: str, max_size: int = MAX_CHUNK_SIZE) -> list[str]:
@@ -90,7 +140,7 @@ def process_with_fallback(providers, prompt: str, config: dict) -> tuple[str, st
     raise RuntimeError("All providers failed")
 
 
-def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str]:
+def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str | None]:
     if len(raw_text) <= MAX_CHUNK_SIZE:
         prompt_template = config['processing']['prompt']
         source_lang = config['processing'].get('source_language', 'auto')
@@ -183,7 +233,6 @@ def main():
     
     rate_config = config['rate_limit']
     delay = 60.0 / rate_config['requests_per_minute']
-    include_title = config['processing'].get('include_filename_as_title', True)
     
     try:
         for i, srt_file in enumerate(srt_files, 1):
@@ -191,7 +240,13 @@ def main():
             
             try:
                 srt_content = read_srt(srt_file)
-                raw_text = extract_text_from_srt(srt_content)
+                blocks = parse_srt(srt_content)
+                
+                if not blocks:
+                    print(f"    Skipping: No subtitle blocks found")
+                    continue
+                
+                raw_text = blocks_to_translatable_text(blocks)
                 
                 if not raw_text.strip():
                     print(f"    Skipping: No text content found")
@@ -199,15 +254,12 @@ def main():
                 
                 translated_text, used_provider = process_large_text(providers, raw_text, config)
                 
-                output_lines = []
-                if include_title:
-                    title = srt_file.stem
-                    output_lines.append(f"# {title}\n")
-                output_lines.append(translated_text)
+                translated_texts = parse_translated_text(translated_text, len(blocks))
+                output_content = build_srt(blocks, translated_texts)
                 
-                output_file = OUTPUT_DIR / f"{srt_file.stem}.txt"
+                output_file = OUTPUT_DIR / f"{srt_file.stem}.srt"
                 with open(output_file, 'w', encoding='utf-8') as f:
-                    f.write('\n'.join(output_lines))
+                    f.write(output_content)
                 
                 print(f"    Done via {used_provider} -> {output_file.name}")
                 

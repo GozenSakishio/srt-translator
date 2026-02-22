@@ -28,17 +28,15 @@ processing:
     You are a professional translator. Translate the following text from {source_language} to {target_language}.
     
     Requirements:
-    1. Maintain the original formatting and structure
-    2. Keep code blocks, URLs, and technical terms unchanged
-    3. Preserve markdown formatting if present
-    4. Output ONLY the translated text, no explanations
-    5. Output ALL content completely - do not omit or truncate any part
+    1. Each line starts with [N] where N is the subtitle index number
+    2. Keep the [N] prefix exactly as-is, only translate the text after it
+    3. Output ONLY the translated lines with their [N] prefixes
+    4. Do not add any explanations or additional content
     
     Text to translate:
     {content}
   
-  output_format: txt
-  include_filename_as_title: true
+  output_format: srt
 
 rate_limit:
   requests_per_minute: 30
