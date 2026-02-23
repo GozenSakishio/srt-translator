@@ -8,7 +8,7 @@ def create_provider(provider_config: dict, timeout: float = 60.0) -> BaseProvide
     
     if name == 'siliconflow':
         return SiliconFlowProvider(provider_config, timeout)
-    elif name in ('alibaba', 'alibaba-plus'):
+    elif name == 'alibaba':
         return AlibabaProvider(provider_config, timeout)
     elif name == 'openrouter':
         return OpenRouterProvider(provider_config, timeout)

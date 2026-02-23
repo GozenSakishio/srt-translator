@@ -101,10 +101,8 @@ def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
     return '\n'.join(output)
 
 
-def get_effective_chunk_size(providers, config) -> int:
-    min_context = min(p.context_limit for p in providers)
-    max_chunk = config.get('processing', {}).get('max_chunk_size', 25000)
-    return min(int(min_context * 0.75), max_chunk)
+def get_effective_chunk_size() -> int:
+    return DEFAULT_CHUNK_SIZE
 
 
 def split_text_into_chunks(text: str, max_size: int = DEFAULT_CHUNK_SIZE) -> list[str]:
@@ -168,7 +166,7 @@ def build_prompt(prompt_template: str, raw_text: str, config: dict) -> str:
 
 
 def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str | None]:
-    chunk_size = get_effective_chunk_size(providers, config)
+    chunk_size = get_effective_chunk_size()
     target_lang = config['processing'].get('target_language', 'Chinese')
     
     if len(raw_text) <= chunk_size:

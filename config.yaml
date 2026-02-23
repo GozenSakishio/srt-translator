@@ -5,18 +5,8 @@ providers:
     enabled: true
     proxy: null
     max_tokens: 8000
-    context_limit: 32000
     extra_params:
       enable_thinking: false
-      
-  - name: alibaba-plus
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    model: qwen3.5-plus
-    enabled: true
-    proxy: null
-    max_tokens: 16000
-    context_limit: 131072
-    timeout: 300
       
   - name: siliconflow
     base_url: https://api.siliconflow.cn/v1
@@ -24,21 +14,18 @@ providers:
     enabled: true
     proxy: null
     max_tokens: 16000
-    context_limit: 32000
     
   - name: openrouter
     base_url: https://openrouter.ai/api/v1
     model: qwen/qwen3-8b
     enabled: true
     max_tokens: 16000
-    context_limit: 32000
 
 processing:
   source_language: auto
   target_language: Chinese
   context: "Blender 3D software tutorial - technical terms include: render, shader, node, vertex, mesh, UV, texture, animation, keyframe"
   translation_style: natural
-  max_chunk_size: 12000
   prompt: |
     You are a professional translator. Translate from {source_language} to {target_language}.
     
