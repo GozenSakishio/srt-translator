@@ -340,3 +340,51 @@ python run.py -l
 | max_tokens configured | ✓ | Prevents output truncation |
 
 **Core principle**: Understand the difference between input limits (context_limit) and output limits (max_tokens). Configure both correctly.
+
+---
+
+## 12. Partial Translation Bug - Critical Lesson
+
+### Symptoms
+- Output files have some blocks in Chinese, some still in English
+- Block misalignment: block 200 translated with block 210's content
+- Different providers show different completion rates
+
+### Root Causes
+
+1. **OUTPUT truncation** (not input)
+   - max_tokens=8000 limits OUTPUT, not just input
+   - Chinese text: ~1.8 chars per token
+   - If input is 20000 chars, output ≈ 20000 chars ≈ 11000 tokens → EXCEEDS max_tokens!
+
+2. **API model behavior**
+   - Alibaba qwen3-8b: Doesn't reliably preserve [N] block numbers
+   - When output truncates, model may output wrong numbers or skip blocks
+
+3. **Chunk size miscalculation**
+   - Was using context_limit (input capacity) for chunking
+   - Should use max_tokens (output capacity) for chunking
+
+### The Fix
+
+```python
+def get_effective_chunk_size(providers) -> int:
+    min_context = min(p.context_limit for p in providers)
+    min_output = min(p._max_tokens for p in providers)
+    # max_tokens limits OUTPUT: 1 token ≈ 1.8 Chinese chars
+    output_limit_chars = int(min_output * 1.8)
+    return min(int(min_context * SAFETY_MARGIN), output_limit_chars)
+```
+
+### Warning Signs
+```
+Warning: Only 87.8% translated, some blocks may be in original language
+```
+
+This warning appears when block numbers don't match because AI output was truncated or misaligned.
+
+### Recommendations
+1. Use SiliconFlow or OpenRouter (max_tokens=16000, better API behavior)
+2. Keep chunk size at ~14400 chars for alibaba (8000 tokens * 1.8)
+3. Keep chunk size at ~28800 chars for siliconflow (16000 tokens * 1.8)
+4. If seeing partial translation, reduce chunk size or change provider
