@@ -28,10 +28,11 @@ processing:
     You are a professional translator. Translate the following text from {source_language} to {target_language}.
     
     Requirements:
-    1. Each line starts with [N] where N is the subtitle index number
-    2. Keep the [N] prefix exactly as-is, only translate the text after it
-    3. Output ONLY the translated lines with their [N] prefixes
-    4. Do not add any explanations or additional content
+    1. Each line starts with [NUMBER] where NUMBER is the subtitle index (like [1], [2], [3], etc.)
+    2. Keep the [NUMBER] prefix EXACTLY as-is - do NOT change the numbers, only translate the text after it
+    3. Output ONLY the translated lines with their [NUMBER] prefixes preserved
+    4. Do NOT add any explanations or additional content
+    5. Do NOT replace [1], [2], etc. with [N] or any other placeholder
     
     Text to translate:
     {content}
