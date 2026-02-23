@@ -5,6 +5,30 @@ master branch produces incomplete translations (some blocks untranslated), while
 
 ---
 
+## Solution (v0.0.2)
+
+### Single Source of Truth
+Use `context_window` from model documentation (e.g., qwen3-8b = 32k tokens).
+
+### Chunk Size Formula
+```python
+SAFETY_MARGIN = 0.75    # 25% for prompt overhead
+OUTPUT_RESERVE = 0.5    # 50% for output
+CHARS_PER_TOKEN = 1.5   # Conservative estimate for Chinese
+
+input_limit = context_window * SAFETY_MARGIN * OUTPUT_RESERVE * CHARS_PER_TOKEN
+```
+
+For 32k context: 32000 × 0.75 × 0.5 × 1.5 = 18000 chars
+
+### API Call
+Remove `max_tokens` parameter - let provider use its default output limit.
+
+### Translation Validation
+Detect untranslated blocks by checking Chinese character ratio (< 30% indicates untranslated).
+
+---
+
 ## Technical Analysis
 
 ### 1. Token Calculation Issue
@@ -129,6 +153,18 @@ def get_safe_chunk_size(max_tokens: int, prompt_tokens: int = 200) -> int:
     CHARS_PER_TOKEN = 1.5  # Conservative for Chinese
     return int((max_tokens * SAFE_MARGIN - prompt_tokens) * CHARS_PER_TOKEN)
 ```
+
+---
+
+## Previous Issues (Resolved)
+
+| Issue | v0.0.1 | master | v0.0.2 (Current) |
+|-------|--------|--------|------------------|
+| Chunk size | 12000 chars fixed | ~14400 chars dynamic | Dynamic from context_window |
+| Safety margin | Implicit (~25%) | Applied incorrectly | Explicit 0.75 factor |
+| Token estimation | N/A | 1.8 chars/token | 1.5 chars/token (conservative) |
+| Validation | None | None | Chinese char ratio check |
+| Config param | max_tokens (confusing) | max_tokens + context_limit | context_window only |
 
 ---
 

@@ -4,7 +4,7 @@ providers:
     model: qwen3-8b
     enabled: true
     proxy: null
-    max_tokens: 8000
+    context_window: 32000
     extra_params:
       enable_thinking: false
       
@@ -13,13 +13,13 @@ providers:
     model: Qwen/Qwen3-8B
     enabled: true
     proxy: null
-    max_tokens: 16000
+    context_window: 32000
     
   - name: openrouter
     base_url: https://openrouter.ai/api/v1
     model: qwen/qwen3-8b
     enabled: true
-    max_tokens: 16000
+    context_window: 32000
 
 processing:
   source_language: auto
@@ -46,4 +46,3 @@ rate_limit:
   retry_delay: 5
   fallback_to_next_provider: true
   timeout: 120
-  max_tokens: 8000

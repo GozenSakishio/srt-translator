@@ -14,7 +14,15 @@ load_dotenv()
 INPUT_DIR = Path("input")
 OUTPUT_DIR = Path("output")
 CONFIG_FILE = Path("config.yaml")
-MAX_CHUNK_SIZE = 12000
+
+SAFETY_MARGIN = 0.75
+OUTPUT_RESERVE = 0.5
+CHARS_PER_TOKEN = 1.5
+
+
+def get_effective_chunk_size(providers) -> int:
+    min_context = min(p._context_window for p in providers)
+    return int(min_context * SAFETY_MARGIN * OUTPUT_RESERVE * CHARS_PER_TOKEN)
 
 
 def load_config():
@@ -94,7 +102,7 @@ def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
     return '\n'.join(output)
 
 
-def split_text_into_chunks(text: str, max_size: int = MAX_CHUNK_SIZE) -> list[str]:
+def split_text_into_chunks(text: str, max_size: int) -> list[str]:
     sentences = re.split(r'(?<=[。.!?])\s*', text)
     chunks = []
     current_chunk = []
@@ -140,8 +148,17 @@ def process_with_fallback(providers, prompt: str, config: dict) -> tuple[str, st
     raise RuntimeError("All providers failed")
 
 
+def validate_translation(original: str, translated: str, target_lang: str = "Chinese") -> bool:
+    if target_lang.lower() in ("chinese", "zh", "中文"):
+        chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', translated))
+        ratio = chinese_chars / len(translated) if translated else 0
+        return ratio >= 0.3
+    return True
+
+
 def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str | None]:
-    if len(raw_text) <= MAX_CHUNK_SIZE:
+    chunk_size = get_effective_chunk_size(providers)
+    if len(raw_text) <= chunk_size:
         prompt_template = config['processing']['prompt']
         source_lang = config['processing'].get('source_language', 'auto')
         target_lang = config['processing'].get('target_language', 'Chinese')
@@ -152,7 +169,7 @@ def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str
         )
         return process_with_fallback(providers, prompt, config)
     
-    chunks = split_text_into_chunks(raw_text)
+    chunks = split_text_into_chunks(raw_text, chunk_size)
     print(f"    Split into {len(chunks)} chunks ({[len(c) for c in chunks]} chars each)")
     
     prompt_template = config['processing']['prompt']
@@ -255,6 +272,17 @@ def main():
                 translated_text, used_provider = process_large_text(providers, raw_text, config)
                 
                 translated_texts = parse_translated_text(translated_text, len(blocks))
+                
+                target_lang = config['processing'].get('target_language', 'Chinese')
+                untranslated = []
+                for idx, (orig_text, trans_text) in enumerate(zip(blocks, translated_texts)):
+                    combined = ' '.join(orig_text['text'])
+                    if trans_text and not validate_translation(combined, trans_text, target_lang):
+                        untranslated.append(idx + 1)
+                
+                if untranslated:
+                    print(f"    WARNING: {len(untranslated)} blocks may be untranslated: {untranslated[:10]}{'...' if len(untranslated) > 10 else ''}")
+                
                 output_content = build_srt(blocks, translated_texts)
                 
                 output_file = OUTPUT_DIR / f"{srt_file.stem}.srt"

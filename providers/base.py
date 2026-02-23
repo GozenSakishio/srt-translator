@@ -5,7 +5,7 @@ from openai import OpenAI
 class BaseProvider(ABC):
     def __init__(self, config: dict, api_key: str, timeout: float = 60.0):
         self.config = config
-        self._max_tokens = config.get('max_tokens', 8000)
+        self._context_window = config.get('context_window', 32000)
         if 'proxy' in config:
             trust_env = False
             proxy = config.get('proxy')
@@ -53,7 +53,6 @@ class OpenAICompatibleProvider(BaseProvider):
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=temperature,
-            max_tokens=self._max_tokens,
             extra_body=extra_body
         )
         return response.choices[0].message.content
