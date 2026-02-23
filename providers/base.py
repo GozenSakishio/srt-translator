@@ -6,6 +6,7 @@ class BaseProvider(ABC):
     def __init__(self, config: dict, api_key: str, timeout: float = 60.0):
         self.config = config
         self._max_tokens = config.get('max_tokens', 8000)
+        self._context_limit = config.get('context_limit', 32000)
         provider_timeout = config.get('timeout', timeout)
         if 'proxy' in config:
             trust_env = False
@@ -27,6 +28,10 @@ class BaseProvider(ABC):
         )
         self.name = config['name']
         self.model = config['model']
+    
+    @property
+    def context_limit(self) -> int:
+        return self._context_limit
     
     def close(self):
         if hasattr(self, 'http_client') and self.http_client:

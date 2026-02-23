@@ -4,7 +4,8 @@ providers:
     model: qwen3-8b
     enabled: true
     proxy: null
-    max_tokens: 8000
+    max_tokens: 8000       # Output limit (API enforced)
+    context_limit: 32000   # Input limit in chars (model capability)
     extra_params:
       enable_thinking: false
       
@@ -13,13 +14,15 @@ providers:
     model: Qwen/Qwen3-8B
     enabled: true
     proxy: null
-    max_tokens: 16000
+    max_tokens: 16000      # Output limit (API enforced)
+    context_limit: 32000   # Input limit in chars (model capability)
     
   - name: openrouter
     base_url: https://openrouter.ai/api/v1
     model: qwen/qwen3-8b
     enabled: true
-    max_tokens: 16000
+    max_tokens: 16000      # Output limit (API enforced)
+    context_limit: 32000   # Input limit in chars (model capability)
 
 processing:
   source_language: auto

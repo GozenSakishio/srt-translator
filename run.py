@@ -14,7 +14,7 @@ load_dotenv()
 INPUT_DIR = Path("input")
 OUTPUT_DIR = Path("output")
 CONFIG_FILE = Path("config.yaml")
-DEFAULT_CHUNK_SIZE = 12000
+SAFETY_MARGIN = 0.8  # Use 80% of context limit to leave room for prompt/response
 
 
 def load_config():
@@ -101,11 +101,12 @@ def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
     return '\n'.join(output)
 
 
-def get_effective_chunk_size() -> int:
-    return DEFAULT_CHUNK_SIZE
+def get_effective_chunk_size(providers) -> int:
+    min_context = min(p.context_limit for p in providers)
+    return int(min_context * SAFETY_MARGIN)
 
 
-def split_text_into_chunks(text: str, max_size: int = DEFAULT_CHUNK_SIZE) -> list[str]:
+def split_text_into_chunks(text: str, max_size: int) -> list[str]:
     sentences = re.split(r'(?<=[。.!?])\s*', text)
     chunks = []
     current_chunk = []
@@ -166,7 +167,7 @@ def build_prompt(prompt_template: str, raw_text: str, config: dict) -> str:
 
 
 def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str | None]:
-    chunk_size = get_effective_chunk_size()
+    chunk_size = get_effective_chunk_size(providers)
     target_lang = config['processing'].get('target_language', 'Chinese')
     
     if len(raw_text) <= chunk_size:
