@@ -77,15 +77,24 @@ def parse_translated_text(text: str, expected_count: int) -> list[str]:
     output = []
     for i in range(1, expected_count + 1):
         output.append(results.get(i, ''))
-    
     return output
 
 
 def is_translated(text: str, target_lang: str) -> bool:
     if target_lang.lower() in ('chinese', 'zh', '中文'):
         chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', text))
-        return chinese_chars > len(text) * 0.1
+        return chinese_chars > len(text) * 0.15
     return bool(text.strip())
+
+
+def check_translation_completeness(translated_texts: list[str], config: dict, threshold: float = 0.9) -> tuple[bool, float]:
+    target_lang = config.get('processing', {}).get('target_language', 'Chinese')
+    translated_count = sum(1 for t in translated_texts if t and is_translated(t, target_lang))
+    total = len(translated_texts)
+    if total == 0:
+        return False, 0.0
+    rate = translated_count / total
+    return rate >= threshold, rate
 
 
 def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
@@ -103,7 +112,11 @@ def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
 
 def get_effective_chunk_size(providers) -> int:
     min_context = min(p.context_limit for p in providers)
-    return int(min_context * SAFETY_MARGIN)
+    min_output = min(p._max_tokens for p in providers)
+    # max_tokens limits OUTPUT: 1 token ≈ 2 Chinese chars
+    # Translation typically 1:1 char ratio, so OUTPUT size ≈ INPUT size
+    output_limit_chars = int(min_output * 1.8)  # Conservative: 1.8 chars/token
+    return min(int(min_context * SAFETY_MARGIN), output_limit_chars)
 
 
 def split_text_into_chunks(text: str, max_size: int) -> list[str]:
@@ -168,14 +181,10 @@ def build_prompt(prompt_template: str, raw_text: str, config: dict) -> str:
 
 def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str | None]:
     chunk_size = get_effective_chunk_size(providers)
-    target_lang = config['processing'].get('target_language', 'Chinese')
     
     if len(raw_text) <= chunk_size:
         prompt = build_prompt(config['processing']['prompt'], raw_text, config)
         result, provider = process_with_fallback(providers, prompt, config)
-        if not is_translated(result, target_lang):
-            print(f"    Warning: Translation may be incomplete, retrying...")
-            result, provider = process_with_fallback(providers, prompt, config)
         return result, provider
     
     chunks = split_text_into_chunks(raw_text, chunk_size)
@@ -188,11 +197,6 @@ def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str
         print(f"    Processing chunk {i+1}/{len(chunks)}...")
         prompt = build_prompt(config['processing']['prompt'], chunk, config)
         result, provider = process_with_fallback(providers, prompt, config)
-        
-        if not is_translated(result, target_lang):
-            print(f"    Warning: Chunk {i+1} not fully translated, retrying...")
-            result, provider = process_with_fallback(providers, prompt, config)
-        
         results.append(result)
         last_provider = provider
         if i < len(chunks) - 1:
@@ -289,6 +293,11 @@ def main():
                 translated_text, used_provider = process_large_text(providers, raw_text, config)
                 
                 translated_texts = parse_translated_text(translated_text, len(blocks))
+                
+                is_complete, rate = check_translation_completeness(translated_texts, config)
+                if not is_complete:
+                    print(f"    Warning: Only {rate*100:.1f}% translated, some blocks may be in original language")
+                
                 output_content = build_srt(blocks, translated_texts)
                 
                 output_file = OUTPUT_DIR / f"{srt_file.stem}.srt"
