@@ -5,6 +5,7 @@ providers:
     enabled: true
     proxy: null
     context_window: 32000
+    max_output_tokens: 8192
     extra_params:
       enable_thinking: false
       
@@ -14,12 +15,14 @@ providers:
     enabled: true
     proxy: null
     context_window: 32000
+    max_output_tokens: 16000
     
   - name: openrouter
     base_url: https://openrouter.ai/api/v1
     model: qwen/qwen3-8b
     enabled: true
     context_window: 32000
+    max_output_tokens: 16000
 
 processing:
   source_language: auto

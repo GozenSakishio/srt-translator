@@ -22,7 +22,13 @@ CHARS_PER_TOKEN = 1.5
 
 def get_effective_chunk_size(providers) -> int:
     min_context = min(p._context_window for p in providers)
-    return int(min_context * SAFETY_MARGIN * OUTPUT_RESERVE * CHARS_PER_TOKEN)
+    return int(min_context * SAFETY_MARGIN * OUTPUT_RESERVE)
+
+
+def get_max_tokens_for_chunk(providers, chunk_chars: int) -> int:
+    min_context = min(p._context_window for p in providers)
+    input_tokens = int(chunk_chars / CHARS_PER_TOKEN)
+    return min_context - input_tokens
 
 
 def load_config():
@@ -126,7 +132,7 @@ def split_text_into_chunks(text: str, max_size: int) -> list[str]:
     return chunks
 
 
-def process_with_fallback(providers, prompt: str, config: dict) -> tuple[str, str]:
+def process_with_fallback(providers, prompt: str, config: dict, max_tokens: int | None = None) -> tuple[str, str]:
     rate_config = config['rate_limit']
     max_retries = rate_config.get('max_retries', 3)
     retry_delay = rate_config.get('retry_delay', 5)
@@ -135,7 +141,7 @@ def process_with_fallback(providers, prompt: str, config: dict) -> tuple[str, st
         for attempt in range(max_retries):
             try:
                 print(f"    Trying {provider.name} ({provider.model}) attempt {attempt + 1}/{max_retries}")
-                result = provider.process(prompt)
+                result = provider.process(prompt, max_tokens=max_tokens)
                 return result, provider.name
             except Exception as e:
                 import traceback
@@ -167,7 +173,8 @@ def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str
             target_language=target_lang,
             content=raw_text
         )
-        return process_with_fallback(providers, prompt, config)
+        max_tokens = get_max_tokens_for_chunk(providers, len(raw_text))
+        return process_with_fallback(providers, prompt, config, max_tokens)
     
     chunks = split_text_into_chunks(raw_text, chunk_size)
     print(f"    Split into {len(chunks)} chunks ({[len(c) for c in chunks]} chars each)")
@@ -185,7 +192,8 @@ def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str
             target_language=target_lang,
             content=chunk
         )
-        result, provider = process_with_fallback(providers, prompt, config)
+        max_tokens = get_max_tokens_for_chunk(providers, len(chunk))
+        result, provider = process_with_fallback(providers, prompt, config, max_tokens)
         results.append(result)
         last_provider = provider
         if i < len(chunks) - 1:

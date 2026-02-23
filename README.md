@@ -84,13 +84,18 @@ rate_limit:
 | Parameter | Description | Formula/Value |
 |-----------|-------------|---------------|
 | `context_window` | Model's context window from documentation | e.g., 32000 for qwen3-8b |
-| Chunk size | Max input chars per API call | `context_window × 0.75 × 0.5 × 1.5` |
+| `max_output_tokens` | API's max output limit per provider | 8192 (Alibaba), 16000 (others) |
+| Chunk size | Max input chars per API call | `context_window × 0.75 ÷ 2` |
+| `max_tokens` (API) | Output token limit for translation | `min(context - input, max_output_tokens)` |
 | Safety margin | Reserve for prompt overhead | 0.75 (25% reserved) |
 | Output reserve | Portion for translation output | 0.5 (50% for output) |
-| Chars per token | Chinese text estimate | 1.5 chars/token |
+| Chars per token | Approximation for token estimation | 1.5 |
 
-**Example calculation** for 32k context:
-- Input limit = 32000 × 0.75 × 0.5 × 1.5 = **18000 chars**
+**Example calculation** for 32k context with 12000 char chunk (Alibaba):
+- Input limit = 32000 × 0.75 ÷ 2 = **12000 chars**
+- Input tokens ≈ 12000 ÷ 1.5 = **8000 tokens**
+- Calculated max_tokens = 32000 - 8000 = 24000
+- Capped to `max_output_tokens` = **8192 tokens**
 
 ## API Keys
 
@@ -107,11 +112,9 @@ rate_limit:
 
 ## Architecture Notes
 
-Inherited from srt-processor:
-
 1. **Context window config** - Use `context_window` from model docs (single source of truth)
-2. **Dynamic chunk sizing** - Calculated: `context_window × 0.75 × 0.5 × 1.5`
-3. **No max_tokens in API** - Let provider use default output limit
+2. **Dynamic chunk sizing** - Calculated: `context_window × 0.75 ÷ 2`
+3. **Dynamic max_tokens** - Set per request: `context_window - input_tokens`
 4. **Translation validation** - Detects untranslated blocks (Chinese char ratio < 30%)
 5. **Chunked processing** - Large files split at sentence boundaries
 6. **Provider fallback** - Tries providers in config order

@@ -6,6 +6,7 @@ class BaseProvider(ABC):
     def __init__(self, config: dict, api_key: str, timeout: float = 60.0):
         self.config = config
         self._context_window = config.get('context_window', 32000)
+        self._max_output_tokens = config.get('max_output_tokens', 8192)
         if 'proxy' in config:
             trust_env = False
             proxy = config.get('proxy')
@@ -43,16 +44,20 @@ class BaseProvider(ABC):
         self.close()
     
     @abstractmethod
-    def process(self, prompt: str, temperature: float = 0.7) -> str:
+    def process(self, prompt: str, temperature: float = 0.7, max_tokens: int | None = None) -> str:
         pass
 
 class OpenAICompatibleProvider(BaseProvider):
-    def process(self, prompt: str, temperature: float = 0.7) -> str:
+    def process(self, prompt: str, temperature: float = 0.7, max_tokens: int | None = None) -> str:
         extra_body = self.config.get('extra_params')
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            extra_body=extra_body
-        )
-        return response.choices[0].message.content
+        params = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "extra_body": extra_body
+        }
+        if max_tokens is not None:
+            params["max_tokens"] = min(max_tokens, self._max_output_tokens)
+        response = self.client.chat.completions.create(**params)
+        content = response.choices[0].message.content
+        return content if content is not None else ""

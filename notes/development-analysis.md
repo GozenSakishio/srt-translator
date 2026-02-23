@@ -14,18 +14,81 @@ Use `context_window` from model documentation (e.g., qwen3-8b = 32k tokens).
 ```python
 SAFETY_MARGIN = 0.75    # 25% for prompt overhead
 OUTPUT_RESERVE = 0.5    # 50% for output
-CHARS_PER_TOKEN = 1.5   # Conservative estimate for Chinese
 
-input_limit = context_window * SAFETY_MARGIN * OUTPUT_RESERVE * CHARS_PER_TOKEN
+chunk_size = context_window * SAFETY_MARGIN * OUTPUT_RESERVE
 ```
 
-For 32k context: 32000 × 0.75 × 0.5 × 1.5 = 18000 chars
+For 32k context: 32000 × 0.75 ÷ 2 = **12000 chars**
 
-### API Call
-Remove `max_tokens` parameter - let provider use its default output limit.
+### max_tokens Calculation
+```python
+CHARS_PER_TOKEN = 1.5
+
+input_tokens = chunk_chars / CHARS_PER_TOKEN
+max_tokens = context_window - input_tokens
+max_tokens = min(max_tokens, max_output_tokens)  # Cap per provider
+```
+
+For 12000 char chunk (Alibaba, max_output_tokens=8192):
+- Calculated: 32000 - 8000 = 24000
+- Capped: **8192** (Alibaba's API limit)
+
+For 12000 char chunk (SiliconFlow/OpenRouter, max_output_tokens=16000):
+- Calculated: 32000 - 8000 = 24000
+- Capped: **16000**
+
+### Provider Limits
+| Provider | `max_output_tokens` | Reason |
+|----------|---------------------|--------|
+| Alibaba | 8192 | API restriction |
+| SiliconFlow | 16000 | Default |
+| OpenRouter | 16000 | Default |
+
+### Key Insight
+`max_tokens` controls **output capacity**, not input. Setting it dynamically ensures:
+- Input + output always fits within context window
+- Model has maximum room for translation output
+- No truncation occurs
 
 ### Translation Validation
 Detect untranslated blocks by checking Chinese character ratio (< 30% indicates untranslated).
+
+---
+
+## Session Log
+
+### 2026-02-23: max_tokens Restoration
+
+**Problem:** Removing `max_tokens` from API call caused incomplete translations regardless of chunk size.
+
+**Root cause:** Without explicit `max_tokens`, the API may use a small default output limit, truncating translations.
+
+**Fix:** Restore `max_tokens` but calculate dynamically:
+```python
+max_tokens = context_window - (chunk_chars / 1.5)
+```
+
+This ensures: input_tokens + max_tokens ≤ context_window
+
+**Files changed:**
+- `run.py`: Added `get_max_tokens_for_chunk()`, pass `max_tokens` to provider
+- `providers/base.py`: Accept `max_tokens` parameter in `process()`
+
+### 2026-02-23: Provider max_output_tokens Cap
+
+**Problem:** Alibaba API returned 400 error: `Range of max_tokens should be [1, 8192]`
+
+**Root cause:** Calculated `max_tokens` (24000) exceeded Alibaba's API limit (8192).
+
+**Fix:** Add `max_output_tokens` per provider config, cap calculated value:
+```python
+params["max_tokens"] = min(max_tokens, self._max_output_tokens)
+```
+
+**Files changed:**
+- `config.yaml`: Added `max_output_tokens` per provider
+- `providers/base.py`: Store `_max_output_tokens`, cap in `process()`
+- `providers/base.py`: Accept `max_tokens` parameter in `process()`
 
 ---
 
@@ -160,9 +223,9 @@ def get_safe_chunk_size(max_tokens: int, prompt_tokens: int = 200) -> int:
 
 | Issue | v0.0.1 | master | v0.0.2 (Current) |
 |-------|--------|--------|------------------|
-| Chunk size | 12000 chars fixed | ~14400 chars dynamic | Dynamic from context_window |
+| Chunk size | 12000 chars fixed | ~14400 chars dynamic | `context_window × 0.75 ÷ 2` |
 | Safety margin | Implicit (~25%) | Applied incorrectly | Explicit 0.75 factor |
-| Token estimation | N/A | 1.8 chars/token | 1.5 chars/token (conservative) |
+| max_tokens | Fixed per provider | Not set (API default) | Dynamic: `context - input` |
 | Validation | None | None | Chinese char ratio check |
 | Config param | max_tokens (confusing) | max_tokens + context_limit | context_window only |
 
