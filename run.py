@@ -16,19 +16,33 @@ OUTPUT_DIR = Path("output")
 CONFIG_FILE = Path("config.yaml")
 
 SAFETY_MARGIN = 0.75
-OUTPUT_RESERVE = 0.5
-CHARS_PER_TOKEN = 1.5
+OUTPUT_RESERVE = 0.33
+ENGLISH_CHARS_PER_TOKEN = 4
+CHINESE_CHARS_PER_TOKEN = 1.5
+CHINESE_EXPANSION = 2.67
+OUTPUT_SAFETY = 0.9
 
 
 def get_effective_chunk_size(providers) -> int:
     min_context = min(p._context_window for p in providers)
-    return int(min_context * SAFETY_MARGIN * OUTPUT_RESERVE)
+    min_output = min(p._max_output_tokens for p in providers)
+    
+    chunk_by_context = int(min_context * SAFETY_MARGIN * OUTPUT_RESERVE)
+    max_output_with_margin = int(min_output * OUTPUT_SAFETY)
+    chunk_by_output = int(max_output_with_margin / CHINESE_EXPANSION * ENGLISH_CHARS_PER_TOKEN)
+    
+    return min(chunk_by_context, chunk_by_output)
 
 
 def get_max_tokens_for_chunk(providers, chunk_chars: int) -> int:
     min_context = min(p._context_window for p in providers)
-    input_tokens = int(chunk_chars / CHARS_PER_TOKEN)
-    return min_context - input_tokens
+    min_output = min(p._max_output_tokens for p in providers)
+    input_tokens = int(chunk_chars / ENGLISH_CHARS_PER_TOKEN)
+    
+    available_by_context = min_context - input_tokens
+    available = min(available_by_context, min_output)
+    
+    return int(available * OUTPUT_SAFETY)
 
 
 def load_config():
@@ -109,25 +123,24 @@ def build_srt(blocks: list[dict], translated_texts: list[str]) -> str:
 
 
 def split_text_into_chunks(text: str, max_size: int) -> list[str]:
-    sentences = re.split(r'(?<=[。.!?])\s*', text)
+    blocks = re.split(r'(?=\[\d+\])', text)
+    blocks = [b.strip() for b in blocks if b.strip()]
+    
     chunks = []
     current_chunk = []
     current_size = 0
     
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
-        sent_size = len(sentence)
-        if current_size + sent_size + 1 > max_size and current_chunk:
-            chunks.append(' '.join(current_chunk))
+    for block in blocks:
+        block_size = len(block)
+        if current_size + block_size + 1 > max_size and current_chunk:
+            chunks.append('\n'.join(current_chunk))
             current_chunk = []
             current_size = 0
-        current_chunk.append(sentence)
-        current_size += sent_size + 1
+        current_chunk.append(block)
+        current_size += block_size + 1
     
     if current_chunk:
-        chunks.append(' '.join(current_chunk))
+        chunks.append('\n'.join(current_chunk))
     
     return chunks
 
@@ -156,42 +169,55 @@ def process_with_fallback(providers, prompt: str, config: dict, max_tokens: int 
 
 def validate_translation(original: str, translated: str, target_lang: str = "Chinese") -> bool:
     if target_lang.lower() in ("chinese", "zh", "中文"):
+        if translated == original:
+            return False
         chinese_chars = len(re.findall(r'[\u4e00-\u9fff]', translated))
         ratio = chinese_chars / len(translated) if translated else 0
-        return ratio >= 0.3
+        return ratio >= 0.15
     return True
+
+
+def count_blocks(text: str) -> int:
+    return len(re.findall(r'\[\d+\]', text))
+
+
+def get_last_index(text: str) -> int:
+    matches = re.findall(r'\[(\d+)\]', text)
+    return int(matches[-1]) if matches else 0
+
+
+def format_prompt(prompt_template: str, content: str, source_lang: str, target_lang: str) -> str:
+    block_count = count_blocks(content)
+    last_index = get_last_index(content)
+    return prompt_template.format(
+        block_count=block_count,
+        last_index=last_index,
+        source_language=source_lang,
+        target_language=target_lang,
+        content=content
+    )
 
 
 def process_large_text(providers, raw_text: str, config: dict) -> tuple[str, str | None]:
     chunk_size = get_effective_chunk_size(providers)
+    prompt_template = config['processing']['prompt']
+    source_lang = config['processing'].get('source_language', 'auto')
+    target_lang = config['processing'].get('target_language', 'Chinese')
+    
     if len(raw_text) <= chunk_size:
-        prompt_template = config['processing']['prompt']
-        source_lang = config['processing'].get('source_language', 'auto')
-        target_lang = config['processing'].get('target_language', 'Chinese')
-        prompt = prompt_template.format(
-            source_language=source_lang,
-            target_language=target_lang,
-            content=raw_text
-        )
+        prompt = format_prompt(prompt_template, raw_text, source_lang, target_lang)
         max_tokens = get_max_tokens_for_chunk(providers, len(raw_text))
         return process_with_fallback(providers, prompt, config, max_tokens)
     
     chunks = split_text_into_chunks(raw_text, chunk_size)
     print(f"    Split into {len(chunks)} chunks ({[len(c) for c in chunks]} chars each)")
     
-    prompt_template = config['processing']['prompt']
-    source_lang = config['processing'].get('source_language', 'auto')
-    target_lang = config['processing'].get('target_language', 'Chinese')
     results = []
     last_provider = None
     
     for i, chunk in enumerate(chunks):
         print(f"    Processing chunk {i+1}/{len(chunks)}...")
-        prompt = prompt_template.format(
-            source_language=source_lang,
-            target_language=target_lang,
-            content=chunk
-        )
+        prompt = format_prompt(prompt_template, chunk, source_lang, target_lang)
         max_tokens = get_max_tokens_for_chunk(providers, len(chunk))
         result, provider = process_with_fallback(providers, prompt, config, max_tokens)
         results.append(result)

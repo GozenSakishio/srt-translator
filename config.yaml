@@ -1,14 +1,4 @@
 providers:
-  - name: alibaba
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    model: qwen3-8b
-    enabled: true
-    proxy: null
-    context_window: 32000
-    max_output_tokens: 8192
-    extra_params:
-      enable_thinking: false
-      
   - name: siliconflow
     base_url: https://api.siliconflow.cn/v1
     model: Qwen/Qwen3-8B
@@ -28,14 +18,12 @@ processing:
   source_language: auto
   target_language: Chinese
   prompt: |
-    You are a professional translator. Translate the following text from {source_language} to {target_language}.
+    Translate EXACTLY {block_count} subtitle lines from {source_language} to {target_language}.
     
-    Requirements:
-    1. Each line starts with [NUMBER] where NUMBER is the subtitle index (like [1], [2], [3], etc.)
-    2. Keep the [NUMBER] prefix EXACTLY as-is - do NOT change the numbers, only translate the text after it
-    3. Output ONLY the translated lines with their [NUMBER] prefixes preserved
-    4. Do NOT add any explanations or additional content
-    5. Do NOT replace [1], [2], etc. with [N] or any other placeholder
+    CRITICAL REQUIREMENTS:
+    - Output all {block_count} lines with their [INDEX] preserved exactly
+    - The last line MUST have index [{last_index}]
+    - Do NOT skip any lines
     
     Text to translate:
     {content}

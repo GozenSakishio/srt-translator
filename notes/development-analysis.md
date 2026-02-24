@@ -7,48 +7,35 @@ master branch produces incomplete translations (some blocks untranslated), while
 
 ## Solution (v0.0.2)
 
-### Single Source of Truth
-Use `context_window` from model documentation (e.g., qwen3-8b = 32k tokens).
+### Configuration
+- **Removed Alibaba provider** (max_output_tokens=8192 was too limiting)
+- **Providers**: SiliconFlow, OpenRouter (both with 16000 output tokens)
 
 ### Chunk Size Formula
 ```python
-SAFETY_MARGIN = 0.75    # 25% for prompt overhead
-OUTPUT_RESERVE = 0.5    # 50% for output
+SAFETY_MARGIN = 0.75
+OUTPUT_RESERVE = 0.33  # Reduced for faster API calls
+ENGLISH_CHARS_PER_TOKEN = 4
+CHINESE_CHARS_PER_TOKEN = 1.5
+CHINESE_EXPANSION = 2.67  # Chinese output uses ~2.67x more tokens than English input
+OUTPUT_SAFETY = 0.9       # 10% margin for output
 
-chunk_size = context_window * SAFETY_MARGIN * OUTPUT_RESERVE
+chunk_by_context = context_window * SAFETY_MARGIN * OUTPUT_RESERVE
+chunk_by_output = max_output_tokens * OUTPUT_SAFETY / CHINESE_EXPANSION * ENGLISH_CHARS_PER_TOKEN
+chunk_size = min(chunk_by_context, chunk_by_output)
 ```
 
-For 32k context: 32000 × 0.75 ÷ 2 = **12000 chars**
+**Result**: ~7920 chars per chunk
 
-### max_tokens Calculation
+### Prompt with Explicit Block Counting
+Model tends to skip lines when not explicitly constrained:
 ```python
-CHARS_PER_TOKEN = 1.5
-
-input_tokens = chunk_chars / CHARS_PER_TOKEN
-max_tokens = context_window - input_tokens
-max_tokens = min(max_tokens, max_output_tokens)  # Cap per provider
+prompt = f'''Translate EXACTLY {block_count} subtitle lines...
+CRITICAL: The last line MUST have index [{last_index}]
+'''
 ```
 
-For 12000 char chunk (Alibaba, max_output_tokens=8192):
-- Calculated: 32000 - 8000 = 24000
-- Capped: **8192** (Alibaba's API limit)
-
-For 12000 char chunk (SiliconFlow/OpenRouter, max_output_tokens=16000):
-- Calculated: 32000 - 8000 = 24000
-- Capped: **16000**
-
-### Provider Limits
-| Provider | `max_output_tokens` | Reason |
-|----------|---------------------|--------|
-| Alibaba | 8192 | API restriction |
-| SiliconFlow | 16000 | Default |
-| OpenRouter | 16000 | Default |
-
-### Key Insight
-`max_tokens` controls **output capacity**, not input. Setting it dynamically ensures:
-- Input + output always fits within context window
-- Model has maximum room for translation output
-- No truncation occurs
+This prevents the model from truncating output.
 
 ### Translation Validation
 Detect untranslated blocks by checking Chinese character ratio (< 30% indicates untranslated).
@@ -89,6 +76,107 @@ params["max_tokens"] = min(max_tokens, self._max_output_tokens)
 - `config.yaml`: Added `max_output_tokens` per provider
 - `providers/base.py`: Store `_max_output_tokens`, cap in `process()`
 - `providers/base.py`: Accept `max_tokens` parameter in `process()`
+
+### 2026-02-23: Chunk Size Limited by max_output_tokens
+
+**Problem:** After fixing max_output_tokens cap, translations still truncated ~2400 chars per chunk.
+
+**Root cause:** Chinese output uses ~1-1.5 tokens per char. With max_output_tokens=8192:
+- Output capacity ≈ 8192 × 0.7 ≈ 5700 Chinese chars
+- But chunk size was 12000 chars (input ≈ output)
+- Result: truncation
+
+**Fix:** Limit chunk size by max_output_tokens:
+```python
+OUTPUT_SAFETY = 0.8
+chunk_by_output = max_output_tokens * OUTPUT_SAFETY
+chunk_size = min(chunk_by_context, chunk_by_output)
+```
+
+For Alibaba: chunk_size = min(12000, 6553) = **6553 chars**
+
+**Files changed:**
+- `run.py`: Updated `get_effective_chunk_size()` to cap by output limit
+
+### 2026-02-23: Chunk Boundary Fix
+
+**Problem:** Translations had shifted indices - block 460 had content for block 461.
+
+**Root cause:** `split_text_into_chunks()` split at sentence boundaries (periods), cutting subtitle blocks mid-text. Model received incomplete blocks and got confused.
+
+**Fix:** Split at block boundaries (by `[index]`):
+```python
+blocks = re.split(r'(?=\[\d+\])', text)
+```
+
+**Files changed:**
+- `run.py`: Rewrote `split_text_into_chunks()` to respect block boundaries
+
+### 2026-02-23: Reduced OUTPUT_SAFETY
+
+**Problem:** Block 462 still untranslated, some blocks shifted.
+
+**Root cause:** Model needs more output margin. 0.8 safety factor too aggressive.
+
+**Fix:** Reduce OUTPUT_SAFETY from 0.8 to 0.6:
+```python
+OUTPUT_SAFETY = 0.6
+chunk_by_output = 8192 * 0.6 = 4915 chars
+```
+
+**Files changed:**
+- `run.py`: `OUTPUT_SAFETY = 0.6`
+
+### 2026-02-23: Improved Prompt and Validation
+
+**Problem:** False positives in validation (LOL, proper nouns flagged as untranslated).
+
+**Root cause:** 30% Chinese char threshold too strict for translations keeping English proper nouns.
+
+**Fix:**
+1. Improved prompt with explicit format rules and example
+2. Reduced threshold from 30% to 15%
+3. Added exact match check (untranslated = original text)
+
+**Files changed:**
+- `config.yaml`: New shorter prompt with explicit rules
+- `run.py`: Updated `validate_translation()` threshold
+
+### 2026-02-24: Removed Alibaba Provider
+
+**Problem:** Alibaba's max_output_tokens=8192 was a severe bottleneck causing very small chunks and more API calls.
+
+**Solution:** Remove Alibaba, use only SiliconFlow/OpenRouter with 16000 output tokens.
+
+**Files changed:**
+- `config.yaml`: Removed alibaba provider
+
+### 2026-02-24: Reduced OUTPUT_RESERVE
+
+**Problem:** Chunks of 12000 chars caused API timeouts.
+
+**Solution:** Reduce OUTPUT_RESERVE from 0.5 to 0.33, resulting in ~7920 char chunks.
+
+**Files changed:**
+- `run.py`: `OUTPUT_RESERVE = 0.33`
+
+### 2026-02-24: Explicit Block Counting in Prompt
+
+**Problem:** Model randomly skipped lines (e.g., block 462 consistently untranslated). Testing showed model returned 69/70 blocks.
+
+**Root cause:** Qwen model is unreliable at outputting exactly the number of lines provided without explicit instruction.
+
+**Solution:** Add explicit block count and last index in prompt:
+```python
+prompt = f'''Translate EXACTLY {block_count} subtitle lines...
+CRITICAL: The last line MUST have index [{last_index}]'''
+```
+
+**Result:** Model now outputs all blocks consistently.
+
+**Files changed:**
+- `config.yaml`: Updated prompt template with `{block_count}` and `{last_index}`
+- `run.py`: Added `count_blocks()`, `get_last_index()`, `format_prompt()`
 
 ---
 

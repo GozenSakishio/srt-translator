@@ -1,6 +1,6 @@
 # SRT Translator
 
-Translate SRT subtitle files using AI (Alibaba Cloud, SiliconFlow & OpenRouter).
+Translate SRT subtitle files using AI (SiliconFlow & OpenRouter).
 
 ## Features
 
@@ -8,6 +8,7 @@ Translate SRT subtitle files using AI (Alibaba Cloud, SiliconFlow & OpenRouter).
 - Extracts subtitle text and translates
 - Chunked processing for large files
 - Configurable source/target languages
+- Explicit block counting to prevent translation truncation
 
 ## Quick Start (Windows PowerShell)
 
@@ -47,26 +48,20 @@ Edit `config.yaml`:
 
 ```yaml
 providers:
-  - name: alibaba
-    base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-    model: qwen3-8b
-    enabled: true
-    proxy: null
-    context_window: 32000    # Model's context window from docs
-    extra_params:
-      enable_thinking: false
-      
   - name: siliconflow
     base_url: https://api.siliconflow.cn/v1
     model: Qwen/Qwen3-8B
     enabled: true
+    proxy: null
     context_window: 32000
+    max_output_tokens: 16000
     
   - name: openrouter
     base_url: https://openrouter.ai/api/v1
     model: qwen/qwen3-8b
     enabled: true
     context_window: 32000
+    max_output_tokens: 16000
 
 processing:
   source_language: auto
@@ -81,40 +76,31 @@ rate_limit:
 
 ### Parameter Reference
 
-| Parameter | Description | Formula/Value |
-|-----------|-------------|---------------|
-| `context_window` | Model's context window from documentation | e.g., 32000 for qwen3-8b |
-| `max_output_tokens` | API's max output limit per provider | 8192 (Alibaba), 16000 (others) |
-| Chunk size | Max input chars per API call | `context_window × 0.75 ÷ 2` |
-| `max_tokens` (API) | Output token limit for translation | `min(context - input, max_output_tokens)` |
-| Safety margin | Reserve for prompt overhead | 0.75 (25% reserved) |
-| Output reserve | Portion for translation output | 0.5 (50% for output) |
-| Chars per token | Approximation for token estimation | 1.5 |
+| Parameter | Description | Value |
+|-----------|-------------|-------|
+| `context_window` | Model's context window | 32000 for qwen3-8b |
+| `max_output_tokens` | API's max output limit | 16000 |
+| Chunk size | Max input chars per API call | ~7920 chars |
+| `max_tokens` (API) | Output token limit per request | ~14400 tokens |
 
-**Example calculation** for 32k context with 12000 char chunk (Alibaba):
-- Input limit = 32000 × 0.75 ÷ 2 = **12000 chars**
-- Input tokens ≈ 12000 ÷ 1.5 = **8000 tokens**
-- Calculated max_tokens = 32000 - 8000 = 24000
-- Capped to `max_output_tokens` = **8192 tokens**
+**Chunk size formula:** `min(context × 0.75 × 0.33, output × 0.9 ÷ 2.67 × 4)`
 
 ## API Keys
 
 | Provider | Key Name | Get Key |
 |----------|----------|---------|
-| Alibaba Cloud | `ALIBABA_API_KEY` | https://dashscope.console.aliyun.com |
 | SiliconFlow | `SILICONFLOW_API_KEY` | https://cloud.siliconflow.cn |
 | OpenRouter | `OPENROUTER_API_KEY` | https://openrouter.ai/keys |
 
 ## Output
 
 - Input: `input/video.srt`
-- Output: `output/video.txt` (translated text)
+- Output: `output/video.srt` (translated)
 
 ## Architecture Notes
 
-1. **Context window config** - Use `context_window` from model docs (single source of truth)
-2. **Dynamic chunk sizing** - Calculated: `context_window × 0.75 ÷ 2`
-3. **Dynamic max_tokens** - Set per request: `context_window - input_tokens`
-4. **Translation validation** - Detects untranslated blocks (Chinese char ratio < 30%)
-5. **Chunked processing** - Large files split at sentence boundaries
-6. **Provider fallback** - Tries providers in config order
+1. **Context-based configuration** - Single source of truth from model docs
+2. **Block-boundary splitting** - Chunks split at `[index]` boundaries
+3. **Explicit block counting** - Prompt includes exact block count and last index to prevent truncation
+4. **Translation validation** - Detects untranslated blocks (exact match or <15% Chinese chars)
+5. **Provider fallback** - Tries providers in config order
